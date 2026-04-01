@@ -33,6 +33,14 @@ const GATED_BASH_PATTERNS = [
 	/\bcp\b/,
 	/\brsync\b/,
 	/\bmkdir\b/,
+	/\bchmod\b/,
+	/\bchown\b/,
+	/\btouch\b/,
+	/\bln\b/,
+	/\btee\b/,
+	/\bdd\b/,
+	/\bshred\b/,
+	/\btruncate\b/,
 ];
 
 function isGatedBashCommand(command: string): boolean {
