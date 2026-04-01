@@ -46,6 +46,8 @@ cp index.ts ~/.pi/agent/extensions/gatekeeper/
 Or install as a pi package:
 
 ```bash
+pi install npm:@eigenwert/pi-gatekeeper
+# or
 pi install git:github.com/noel-debug/pi-gatekeeper
 ```
 
