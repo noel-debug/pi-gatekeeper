@@ -1,0 +1,10 @@
+{
+  "name": "pi-gatekeeper",
+  "version": "1.0.0",
+  "description": "Pi extension that gates file-mutating tool calls behind user approval",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}
