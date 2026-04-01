@@ -1,56 +1,30 @@
-/** Tools that always require approval */
+/**
+ * Public API for command classification.
+ *
+ * Delegates to the tree-sitter AST analyzer with regex fallback.
+ */
+
+import { analyzeCommand, type AnalysisResult } from "./analyzer";
+
+/** Tools that always require approval (regardless of arguments) */
 export const MUTATING_TOOLS = new Set(["edit", "write"]);
 
-/** File/folder mutation patterns */
-const GATED_BASH_PATTERNS = [
-	/\brm\b/,
-	/\brmdir\b/,
-	/\bunlink\b/,
-	/\btrash\b/,
-	/\bsrm\b/,
-	/\bmv\b/,
-	/\bcp\b/,
-	/\brsync\b/,
-	/\bmkdir\b/,
-	/\bchmod\b/,
-	/\bchown\b/,
-	/\btouch\b/,
-	/\bln\b/,
-	/\btee\b/,
-	/\bdd\b/,
-	/\bshred\b/,
-	/\btruncate\b/,
-];
-
-/** State-changing git subcommands */
-const GATED_GIT_SUBCOMMANDS = [
-	"checkout",
-	"reset",
-	"clean",
-	"rebase",
-	"cherry-pick",
-	"merge",
-	"revert",
-	"stash",
-	"push",
-	"commit",
-	"add",
-	"rm",
-	"mv",
-	"restore",
-	"switch",
-	"tag",
-	"branch",
-];
-
-const GIT_SUBCOMMAND_REGEX = new RegExp(
-	`\\bgit\\s+(?:${GATED_GIT_SUBCOMMANDS.join("|")})\\b`,
-);
-
-export function isGatedBashCommand(command: string): boolean {
-	return GATED_BASH_PATTERNS.some((p) => p.test(command))
-		|| GIT_SUBCOMMAND_REGEX.test(command);
+/**
+ * Analyze a bash command and return whether it should be gated.
+ *
+ * Uses tree-sitter-bash for structural analysis with a default-deny
+ * allowlist. Falls back to regex patterns if tree-sitter is unavailable.
+ */
+export async function isGatedBashCommand(command: string): Promise<boolean> {
+	const result = await analyzeCommand(command);
+	return result.gated;
 }
+
+/**
+ * Analyze a bash command and return detailed classification results.
+ * Includes human-readable reasons for why a command was gated.
+ */
+export { analyzeCommand, type AnalysisResult };
 
 /** Build a human-readable summary of a tool call */
 export function buildToolSummary(toolName: string, input: Record<string, unknown>): string {

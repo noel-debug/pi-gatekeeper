@@ -1,14 +1,18 @@
 {
   "name": "@eigenwert/pi-gatekeeper",
-  "version": "1.0.1",
-  "description": "Pi extension that gates file-mutating tool calls and state-changing commands behind user approval",
+  "version": "2.0.0",
+  "description": "Pi extension that gates file-mutating tool calls behind user approval with AST-based bash command analysis",
   "keywords": ["pi-package", "pi-extension", "gatekeeper", "permissions", "consent"],
-  "files": ["index.ts", "dialog.ts", "patterns.ts", "README.md"],
+  "files": ["index.ts", "dialog.ts", "patterns.ts", "analyzer.ts", "allowlist.ts", "README.md"],
   "license": "MIT",
   "author": "Noel",
   "repository": {
     "type": "git",
     "url": "https://github.com/noel-debug/pi-gatekeeper"
+  },
+  "dependencies": {
+    "web-tree-sitter": "^0.25.3",
+    "tree-sitter-bash": "^0.25.1"
   },
   "pi": {
     "extensions": ["./index.ts"]

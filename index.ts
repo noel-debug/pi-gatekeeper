@@ -87,7 +87,7 @@ export default function gatekeeper(pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		// Check if this tool call needs approval
 		const needsApproval = MUTATING_TOOLS.has(event.toolName)
-			|| (event.toolName === "bash" && isGatedBashCommand(event.input.command as string));
+			|| (event.toolName === "bash" && await isGatedBashCommand(event.input.command as string));
 		if (!needsApproval) return undefined;
 
 		// Auto-accept mode: allow everything
