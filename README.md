@@ -111,7 +111,7 @@ cd ~/.pi/agent/extensions/gatekeeper && npm install
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                 Incoming bash command                │
+│                Incoming bash command                │
 └──────────────────────┬──────────────────────────────┘
                        ▼
 ┌─────────────────────────────────────────────────────┐
@@ -137,6 +137,10 @@ cd ~/.pi/agent/extensions/gatekeeper && npm install
                        ▼
                  ALLOW or GATE
 ```
+
+## Try to break it
+
+No static analysis of a Turing-complete language is perfect. Try to sneak a `touch /tmp/pwned` past the filter. Try to find a read-only command that gets blocked for no reason. The test suite has 217 cases — see if you can find case 218.
 
 ## License
 
