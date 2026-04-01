@@ -1,8 +1,9 @@
 {
   "name": "@eigenwert/pi-gatekeeper",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Pi extension that gates file-mutating tool calls and state-changing commands behind user approval",
   "keywords": ["pi-package", "pi-extension", "gatekeeper", "permissions", "consent"],
+  "files": ["index.ts", "dialog.ts", "patterns.ts", "README.md"],
   "license": "MIT",
   "author": "Noel",
   "repository": {
