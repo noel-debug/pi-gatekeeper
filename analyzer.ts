@@ -51,8 +51,13 @@ async function initParser(): Promise<ParserInstance | null> {
 		const tsPkgDir = dirname(require.resolve("web-tree-sitter"));
 		const bashPkgDir = dirname(require.resolve("tree-sitter-bash/package.json"));
 
+		// WASM filename changed in 0.26.x: tree-sitter.wasm → web-tree-sitter.wasm
+		const wasmCandidates = ["web-tree-sitter.wasm", "tree-sitter.wasm"];
+		const { existsSync } = await import("node:fs");
+		const wasmFile = wasmCandidates.find(f => existsSync(join(tsPkgDir, f))) ?? wasmCandidates[0];
+
 		await Parser.init({
-			locateFile: () => join(tsPkgDir, "tree-sitter.wasm"),
+			locateFile: () => join(tsPkgDir, wasmFile),
 		});
 
 		const parser = new Parser();
