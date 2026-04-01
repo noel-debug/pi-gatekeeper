@@ -289,6 +289,20 @@ const tests: TestCase[] = [
 	// ── Gated: npm pack (P2) ────────────────────────────
 	{ cmd: "npm pack", expect: "gated", label: "npm pack creates tarball" },
 
+	// ── Gated: redirect operators >|, &>, &>> (P1) ────────────────
+	{ cmd: "echo hi >| out.txt", expect: "gated", label: ">| clobber redirect" },
+	{ cmd: "echo hi &> out.txt", expect: "gated", label: "&> stdout+stderr redirect" },
+	{ cmd: "echo hi &>> out.txt", expect: "gated", label: "&>> append stdout+stderr" },
+
+	// ── Gated: git branch flag-only mutations (P2) ────────────────
+	{ cmd: "git branch --set-upstream-to=origin/main", expect: "gated", label: "git branch set upstream" },
+	{ cmd: "git branch --unset-upstream", expect: "gated", label: "git branch unset upstream" },
+	{ cmd: "git branch --edit-description", expect: "gated", label: "git branch edit desc" },
+	{ cmd: "git branch -d feature", expect: "gated", label: "git branch delete" },
+	{ cmd: "git branch -D feature", expect: "gated", label: "git branch force delete" },
+	{ cmd: "git branch -m old new", expect: "gated", label: "git branch rename" },
+	{ cmd: "git branch -c old new", expect: "gated", label: "git branch copy" },
+
 	// ── Gated: function definition ──────────────────────────────────
 	{ cmd: "foo() { rm file; }", expect: "gated", label: "function definition" },
 ];

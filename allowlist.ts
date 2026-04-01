@@ -60,7 +60,23 @@ function isGitListOnlySafe(sub: string, subArgs: string[]): boolean {
 		if (nonFlags.length <= 1 && !flags.some(f => ["--set", "--add", "--unset", "--unset-all", "--replace-all", "--rename-section", "--remove-section"].includes(f))) return true;
 		return false;
 	}
-	// branch, tag, remote: safe if only flags (no positional args that create/delete)
+	if (sub === "branch") {
+		// Mutating flags that take no positional arg
+		const mutatingBranchFlags = new Set([
+			"--set-upstream-to", "--unset-upstream", "--edit-description",
+			"-d", "-D", "--delete",
+			"-m", "-M", "--move",
+			"-c", "-C", "--copy",
+		]);
+		for (const a of subArgs) {
+			const flag = a.split("=")[0];
+			if (mutatingBranchFlags.has(flag)) return false;
+		}
+		// Safe only if no positional args (list mode)
+		return subArgs.filter(a => !a.startsWith("-")).length === 0;
+	}
+
+	// tag, remote: safe if only flags (no positional args that create/delete)
 	return subArgs.filter(a => !a.startsWith("-")).length === 0;
 }
 

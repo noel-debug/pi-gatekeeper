@@ -72,16 +72,22 @@ export async function analyzeCommand(command: string): Promise<AnalysisResult> {
 	if (!parser) return { gated: isGatedFallback(command), reasons: ["regex fallback"] };
 
 	const tree = parser.parse(command);
-	const root = tree.rootNode;
+	try {
+		const root = tree.rootNode;
 
-	// Parse errors → gate (possible obfuscation or complex construct)
-	if (root.hasError) {
-		return { gated: true, reasons: ["parse error (possible obfuscation)"] };
+		// Parse errors → gate (possible obfuscation or complex construct)
+		if (root.hasError) {
+			return { gated: true, reasons: ["parse error (possible obfuscation)"] };
+		}
+
+		const reasons: string[] = [];
+		classifyNode(root, reasons);
+		return { gated: reasons.length > 0, reasons };
+	} finally {
+		// Tree-sitter WASM trees must be explicitly freed to avoid
+		// accumulating allocations over long-running sessions.
+		tree.delete();
 	}
-
-	const reasons: string[] = [];
-	classifyNode(root, reasons);
-	return { gated: reasons.length > 0, reasons };
 }
 
 // ── AST walker ──────────────────────────────────────────────────────────
@@ -354,7 +360,9 @@ function classifyFileRedirect(node: SyntaxNode, reasons: string[]): void {
 
 		if (!child.isNamed) {
 			const t = child.type;
-			if (t === ">" || t === ">>" || t === ">&" || t === "<" || t === "<<" || t === "<<<" || t === "<&") {
+			// All redirect operators emitted by tree-sitter-bash
+			if (t === ">" || t === ">>" || t === ">&" || t === ">|" || t === "&>" || t === "&>>"
+				|| t === "<" || t === "<<" || t === "<<<" || t === "<&") {
 				operator = t;
 			}
 		} else if (child.type !== "file_descriptor") {
@@ -371,8 +379,10 @@ function classifyFileRedirect(node: SyntaxNode, reasons: string[]): void {
 	// Output to /dev/null etc. is safe
 	if (SAFE_REDIRECT_DESTINATIONS.has(destination) || destination.startsWith("/dev/fd/")) return;
 
-	// Any other output redirect → gate
-	if (operator === ">" || operator === ">>" || operator === ">&") {
+	// Any output redirect → gate
+	// >  >>  >&  >|  (clobber) &> (stdout+stderr) &>> (append stdout+stderr)
+	const WRITE_OPERATORS = new Set([">", ">>", ">&", ">|", "&>", "&>>"]);
+	if (WRITE_OPERATORS.has(operator)) {
 		reasons.push(`output redirect: ${operator} ${destination}`);
 	}
 }
