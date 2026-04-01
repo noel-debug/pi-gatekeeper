@@ -182,9 +182,11 @@ function classifyPipeline(node: SyntaxNode, reasons: string[]): void {
 	// Look for pattern: ... | base64 -d | <shell>
 	const decoded = tryDecodePipelinePayload(stages);
 	if (decoded) {
+		const trimmed = decoded.payload.trim();
+		const payloadDisplay = trimmed.length > 120 ? trimmed.slice(0, 120) + "…" : trimmed;
 		reasons.push(
 			`encoded pipeline \`${node.text.slice(0, 80)}\` \u2014 ` +
-			`base64 payload decodes to: \`${decoded.payload.trim()}\` \u2192 piped to \`${decoded.shell}\` for execution`
+			`base64 payload decodes to: \`${payloadDisplay}\` \u2192 piped to \`${decoded.shell}\` for execution`
 		);
 		return;
 	}
@@ -243,10 +245,21 @@ function getCommandName(node: SyntaxNode): string | null {
 	return resolveCommandName(nameNode);
 }
 
-/** Check if a command node has a specific flag */
+/** Check if a command node has a specific flag (supports combined short flags like -di) */
 function hasFlag(node: SyntaxNode, ...flags: string[]): boolean {
 	const args = getCommandArgs(node);
-	return args.some(a => flags.includes(a));
+	return args.some(a => {
+		if (flags.includes(a)) return true;
+		// Check combined short flags: -di contains -d
+		if (a.startsWith("-") && !a.startsWith("--") && a.length > 2) {
+			for (const flag of flags) {
+				if (flag.startsWith("-") && !flag.startsWith("--") && flag.length === 2) {
+					if (a.includes(flag[1])) return true;
+				}
+			}
+		}
+		return false;
+	});
 }
 
 /** Extract the literal string payload fed into a base64 -d stage */

@@ -305,6 +305,102 @@ const tests: TestCase[] = [
 
 	// ── Gated: function definition ──────────────────────────────────
 	{ cmd: "foo() { rm file; }", expect: "gated", label: "function definition" },
+
+	// ── Safe/Gated: base64/base32 conditional ───────────────────────
+	{ cmd: "base64 file.txt", expect: "safe", label: "base64 encode" },
+	{ cmd: "base64 -d file.txt", expect: "safe", label: "base64 decode to stdout" },
+	{ cmd: "base32 file.txt", expect: "safe", label: "base32 encode" },
+	{ cmd: "base64 -o output.txt file.txt", expect: "gated", label: "base64 -o writes file" },
+	{ cmd: "base64 --output output.txt file.txt", expect: "gated", label: "base64 --output writes file" },
+	{ cmd: "base32 -o output.txt file.txt", expect: "gated", label: "base32 -o writes file" },
+
+	// ── Gated: pipeline with combined short flags ──────────────────
+	{ cmd: "echo cm0= | base64 -di | sh", expect: "gated", label: "base64 -di combined flags piped to sh" },
+];
+
+// ── Reason string content tests ─────────────────────────────────────
+
+interface ReasonTest {
+	cmd: string;
+	expectSubstring: string;
+	label: string;
+}
+
+const reasonTests: ReasonTest[] = [
+	// Pipeline decoding: verify decoded payload appears in reasons
+	{
+		cmd: "echo cm0= | base64 -d | sh",
+		expectSubstring: "decodes to",
+		label: "pipeline reason shows decoded payload",
+	},
+	{
+		cmd: "echo cm0= | base64 -d | sh",
+		expectSubstring: "piped to `sh`",
+		label: "pipeline reason names the shell executor",
+	},
+	// Combined flags should still decode
+	{
+		cmd: "echo cm0= | base64 -di | sh",
+		expectSubstring: "decodes to",
+		label: "pipeline with combined -di flag shows decoded payload",
+	},
+
+	// ANSI-C string decoding in reason messages
+	{
+		cmd: "$'\\x72\\x6d' file",
+		expectSubstring: "decodes to `rm`",
+		label: "ANSI-C hex decodes to rm in reason",
+	},
+	{
+		cmd: "$'\\x72\\x6d' file",
+		expectSubstring: "ANSI-C quoting",
+		label: "ANSI-C reason mentions quoting type",
+	},
+
+	// Dynamic name diagnostics
+	{
+		cmd: "$(echo rm) file.txt",
+		expectSubstring: "command substitution",
+		label: "command substitution reason describes construct",
+	},
+	{
+		cmd: "$cmd file",
+		expectSubstring: "variable expansion",
+		label: "variable expansion reason describes construct",
+	},
+
+	// Allowlist default-deny reason
+	{
+		cmd: "rm file.txt",
+		expectSubstring: "not in the safe command allowlist",
+		label: "unknown command reason mentions allowlist",
+	},
+	{
+		cmd: "rm file.txt",
+		expectSubstring: "default-deny",
+		label: "unknown command reason mentions default-deny",
+	},
+
+	// Mutating arguments reason
+	{
+		cmd: "sed -i 's/foo/bar/' file.txt",
+		expectSubstring: "arguments indicate file mutation",
+		label: "mutating args reason",
+	},
+
+	// Function definition reason
+	{
+		cmd: "foo() { rm file; }",
+		expectSubstring: "function definition",
+		label: "function definition reason",
+	},
+
+	// Output redirect reason
+	{
+		cmd: "echo foo > bar.txt",
+		expectSubstring: "writes to filesystem",
+		label: "redirect reason mentions filesystem write",
+	},
 ];
 
 async function main() {
@@ -312,6 +408,7 @@ async function main() {
 	let failed = 0;
 	const failures: string[] = [];
 
+	// Classification tests
 	for (const t of tests) {
 		const result = await analyzeCommand(t.cmd);
 		const actual = result.gated ? "gated" : "safe";
@@ -327,8 +424,21 @@ async function main() {
 		}
 	}
 
+	// Reason content tests
+	for (const t of reasonTests) {
+		const result = await analyzeCommand(t.cmd);
+		const allReasons = result.reasons.join(" ");
+		if (allReasons.includes(t.expectSubstring)) {
+			passed++;
+		} else {
+			failed++;
+			failures.push(`  ✗ Reason for \`${t.cmd}\` (${t.label}) missing substring "${t.expectSubstring}"\n    Got: [${result.reasons.join("; ")}]`);
+		}
+	}
+
+	const total = tests.length + reasonTests.length;
 	console.log(`\n${"═".repeat(60)}`);
-	console.log(`  Results: ${passed} passed, ${failed} failed, ${tests.length} total`);
+	console.log(`  Results: ${passed} passed, ${failed} failed, ${total} total`);
 	console.log("═".repeat(60));
 
 	if (failures.length > 0) {
