@@ -1,6 +1,6 @@
 {
   "name": "@eigenwert/pi-gatekeeper",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "Pi extension that gates file-mutating tool calls behind user approval with AST-based bash command analysis",
   "keywords": [
     "pi-package",
