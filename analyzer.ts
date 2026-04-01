@@ -89,20 +89,24 @@ export async function analyzeCommand(command: string): Promise<AnalysisResult> {
 /**
  * Node classification strategy:
  *
- * - "command"             → extract name, unwrap wrappers, check allowlist
+ * - "command"             → extract name, unwrap wrappers, check allowlist,
+ *                           then scan children for nested executable code
  * - "file_redirect"       → check for output operators (>, >>)
  * - "function_definition" → always gate (defines callable code)
- * - Leaf-safe nodes       → skip (variable_assignment, test_command, etc.)
+ * - Leaf-inert nodes      → skip (only truly non-executable: comments, heredoc text)
  * - Everything else       → recurse into named children
  *
  * Unknown named node types hit the default branch which recurses.
  * This ensures we never silently skip a dangerous construct.
  */
 
-/** Node types that are safe by themselves and don't need child inspection */
-const LEAF_SAFE = new Set([
-	"variable_assignment", "variable_assignments",
-	"declaration_command", "unset_command", "test_command",
+/**
+ * Node types that can NEVER contain executable code.
+ * Everything else is recursed into — this is critical for catching
+ * command substitutions in variable assignments, test expressions, etc.
+ * e.g. FOO=$(rm file), [ $(rm file) ], export BAR=$(touch x)
+ */
+const LEAF_INERT = new Set([
 	"comment", "heredoc_body", "heredoc_start", "heredoc_end",
 ]);
 
@@ -127,8 +131,8 @@ function classifyNode(node: SyntaxNode, reasons: string[]): void {
 			return;
 
 		default:
-			// Leaf-safe nodes: no children to worry about
-			if (LEAF_SAFE.has(node.type)) return;
+			// Leaf-inert nodes: can never contain executable code
+			if (LEAF_INERT.has(node.type)) return;
 
 			// Everything else: recurse into named children
 			// This covers: program, list, pipeline, redirected_statement,
@@ -152,12 +156,6 @@ function classifyCommand(node: SyntaxNode, reasons: string[]): void {
 		return;
 	}
 
-	// Also check for inline redirects on the command itself
-	const redirects = node.childrenForFieldName("redirect");
-	for (const r of redirects) {
-		if (r.isNamed) classifyNode(r, reasons);
-	}
-
 	// Resolve the static command name
 	const resolved = resolveCommandName(nameNode);
 	if (!resolved) {
@@ -169,6 +167,7 @@ function classifyCommand(node: SyntaxNode, reasons: string[]): void {
 
 	// Special case: `command -v/-V` is a type-check, always safe
 	if (resolved === "command" && args.length > 0 && (args[0] === "-v" || args[0] === "-V")) {
+		scanCommandChildren(node, reasons);
 		return;
 	}
 
@@ -179,11 +178,31 @@ function classifyCommand(node: SyntaxNode, reasons: string[]): void {
 	const rule = SAFE_COMMANDS[unwrapped.command];
 	if (rule === undefined) {
 		reasons.push(`command not in allowlist: ${unwrapped.command}`);
-		return;
+		return; // Already gated — no need to scan further
 	}
-	if (rule === true) return; // always safe
-	if (!rule(unwrapped.commandArgs)) {
+	if (rule !== true && !rule(unwrapped.commandArgs)) {
 		reasons.push(`${unwrapped.command} with mutating arguments`);
+		return; // Already gated
+	}
+
+	// Command itself passes the allowlist, but children may still contain
+	// dangerous nested code: output redirects (>, >>), command substitutions
+	// in arguments — echo $(rm file), or env-var assignments with embedded
+	// commands — FOO=$(rm file) echo hi.
+	scanCommandChildren(node, reasons);
+}
+
+/**
+ * Scan all non-name children of a command node for nested executable code.
+ * Handles: output redirects, command substitutions in arguments/strings,
+ * variable assignments with embedded commands, etc.
+ */
+function scanCommandChildren(node: SyntaxNode, reasons: string[]): void {
+	for (let i = 0; i < node.childCount; i++) {
+		const child = node.child(i);
+		if (!child || !child.isNamed) continue;
+		if (child.type === "command_name") continue; // already resolved above
+		classifyNode(child, reasons);
 	}
 }
 

@@ -79,7 +79,8 @@ function isGitSafe(args: string[]): boolean {
 const SAFE_NPM_SUBS = new Set([
 	"ls", "list", "view", "info", "show", "search", "outdated",
 	"audit", "why", "explain", "help", "version", "--version", "-v",
-	"bin", "prefix", "root", "pack", "query", "fund",
+	"bin", "prefix", "root", "query", "fund",
+	// NOTE: "pack" intentionally excluded — it creates a tarball in cwd
 ]);
 
 function isNpmSafe(args: string[]): boolean {
@@ -200,6 +201,8 @@ export const SAFE_COMMANDS: Record<string, CommandRule> = {
 	"echo": true, "printf": true, "yes": true, "true": true, "false": true,
 	"seq": true, "expr": true, "bc": true, "dc": true,
 	"sleep": true, "wait": true,
+	// NOTE: "time" intentionally excluded — it's a BENIGN_WRAPPER that
+	// executes its argument as a command (time rm file → runs rm)
 
 	// ── Date / time ─────────────────────────────────────────────────
 	"date": true, "cal": true, "ncal": true,
@@ -263,6 +266,6 @@ export const SAFE_COMMANDS: Record<string, CommandRule> = {
 // The analyzer unwraps them to check the inner command.
 
 export const BENIGN_WRAPPERS = new Set([
-	"env", "nice", "nohup", "builtin", "command",
+	"env", "nice", "nohup", "builtin", "command", "time",
 	"stdbuf", "timeout", "ionice", "chrt", "taskset", "setsid",
 ]);

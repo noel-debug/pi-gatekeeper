@@ -93,7 +93,7 @@ const tests: TestCase[] = [
 	{ cmd: "env ls", expect: "safe" },
 	{ cmd: "env FOO=bar ls -la", expect: "safe" },
 	{ cmd: "nice grep pattern file", expect: "safe" },
-	{ cmd: "time ls -la", expect: "safe" },
+	{ cmd: "time ls -la", expect: "safe", label: "time wrapping safe cmd" },
 	{ cmd: "timeout 5 cat file.txt", expect: "safe" },
 	{ cmd: "command -v git", expect: "safe" },
 	{ cmd: "command ls -la", expect: "safe", label: "command wrapper" },
@@ -119,6 +119,7 @@ const tests: TestCase[] = [
 	// ── Safe: variable assignment only ──────────────────────────────
 	{ cmd: "FOO=bar", expect: "safe" },
 	{ cmd: "export FOO=bar", expect: "safe" },
+	{ cmd: "[ $(echo hi) = hi ]", expect: "safe", label: "cmd sub in test with safe cmd" },
 
 	// ── Safe: env prefix on command ─────────────────────────────────
 	{ cmd: "ENV=prod cat config.json", expect: "safe" },
@@ -267,6 +268,26 @@ const tests: TestCase[] = [
 	// ── Gated: stacked wrappers ─────────────────────────────────────
 	{ cmd: "nice env nohup rm file", expect: "gated", label: "stacked wrappers around rm" },
 	{ cmd: "env FOO=bar nice -n5 rm -rf /tmp/test", expect: "gated", label: "env+nice wrapping rm" },
+
+	// ── Gated: command substitution in arguments (P1) ─────────
+	{ cmd: "echo $(rm file)", expect: "gated", label: "cmd sub in safe command arg" },
+	{ cmd: "grep $(rm /etc/shadow) pattern", expect: "gated", label: "dangerous cmd sub in grep arg" },
+	{ cmd: 'echo "hello $(touch /tmp/pwned)"', expect: "gated", label: "cmd sub in string arg" },
+	{ cmd: "true $(rm file)", expect: "gated", label: "cmd sub in true arg" },
+
+	// ── Gated: variable assignment with command substitution (P1) ──
+	{ cmd: "FOO=$(rm file)", expect: "gated", label: "var assign with cmd sub" },
+	{ cmd: "A=$(touch /tmp/x)", expect: "gated", label: "var assign with touch" },
+	{ cmd: "export BAR=$(rm file)", expect: "gated", label: "export with cmd sub" },
+	{ cmd: "FOO=$(rm file) echo hi", expect: "gated", label: "env prefix cmd sub" },
+
+	// ── Gated: time as wrapper (P2) ─────────────────────────
+	{ cmd: "time rm file", expect: "gated", label: "time wrapping rm" },
+	{ cmd: "time touch /tmp/pwned", expect: "gated", label: "time wrapping touch" },
+	{ cmd: "time npm install", expect: "gated", label: "time wrapping npm install" },
+
+	// ── Gated: npm pack (P2) ────────────────────────────
+	{ cmd: "npm pack", expect: "gated", label: "npm pack creates tarball" },
 
 	// ── Gated: function definition ──────────────────────────────────
 	{ cmd: "foo() { rm file; }", expect: "gated", label: "function definition" },
