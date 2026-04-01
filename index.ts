@@ -32,6 +32,7 @@ const GATED_BASH_PATTERNS = [
 	/\bmv\b/,
 	/\bcp\b/,
 	/\brsync\b/,
+	/\bmkdir\b/,
 ];
 
 function isGatedBashCommand(command: string): boolean {
