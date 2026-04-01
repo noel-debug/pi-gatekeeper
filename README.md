@@ -4,11 +4,16 @@ A [pi](https://github.com/badlogic/pi-mono) extension that adds a permission sys
 
 ## Gated operations
 
-- **edit** — file edits
-- **write** — file creation/overwrite
-- **bash** — only `rm`, `rmdir`, `unlink`, `trash`, `srm`, `mv`, `cp`, `rsync`
+- **edit** — file edits (shows full diff in the dialog)
+- **write** — file creation/overwrite (shows file content in the dialog)
+- **bash** — only file/folder-mutating commands:
+  - Deletion: `rm`, `rmdir`, `unlink`, `trash`, `srm`, `shred`
+  - Move/copy: `mv`, `cp`, `rsync`
+  - Create: `mkdir`, `touch`, `ln`
+  - Modify: `chmod`, `chown`, `truncate`
+  - Write: `tee`, `dd`
 
-All other tool calls (read, grep, find, ls, harmless bash) go through without asking.
+All other tool calls (`read`, `grep`, `find`, `ls`, harmless bash like `cat`, `git`, etc.) go through without asking.
 
 ## Dialog
 
@@ -30,10 +35,11 @@ When a gated tool call is intercepted, a dialog appears showing what the tool wa
 
 ## Install
 
-Copy `gatekeeper.ts` to `~/.pi/agent/extensions/`:
+Copy `index.ts` to `~/.pi/agent/extensions/gatekeeper/`:
 
 ```bash
-cp gatekeeper.ts ~/.pi/agent/extensions/
+mkdir -p ~/.pi/agent/extensions/gatekeeper
+cp index.ts ~/.pi/agent/extensions/gatekeeper/
 ```
 
 Or install as a pi package:
