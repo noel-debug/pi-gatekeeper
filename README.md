@@ -6,14 +6,15 @@ A [pi](https://github.com/badlogic/pi-mono) extension that adds a permission sys
 
 - **edit** — file edits (shows full diff in the dialog)
 - **write** — file creation/overwrite (shows file content in the dialog)
-- **bash** — only file/folder-mutating commands:
+- **bash** — only file/folder-mutating and state-changing commands:
   - Deletion: `rm`, `rmdir`, `unlink`, `trash`, `srm`, `shred`
   - Move/copy: `mv`, `cp`, `rsync`
   - Create: `mkdir`, `touch`, `ln`
   - Modify: `chmod`, `chown`, `truncate`
   - Write: `tee`, `dd`
+  - Git: `checkout`, `reset`, `clean`, `rebase`, `cherry-pick`, `merge`, `revert`, `stash`, `push`, `commit`, `add`, `rm`, `mv`, `restore`, `switch`, `tag`, `branch`
 
-All other tool calls (`read`, `grep`, `find`, `ls`, harmless bash like `cat`, `git`, etc.) go through without asking.
+All other tool calls (`read`, `grep`, `find`, `ls`, harmless bash like `cat`, `git status`, `git log`, `git diff`, etc.) go through without asking.
 
 ## Dialog
 

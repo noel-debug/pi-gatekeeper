@@ -1,7 +1,7 @@
 /** Tools that always require approval */
 export const MUTATING_TOOLS = new Set(["edit", "write"]);
 
-/** Bash command patterns that require approval */
+/** File/folder mutation patterns */
 const GATED_BASH_PATTERNS = [
 	/\brm\b/,
 	/\brmdir\b/,
@@ -22,8 +22,34 @@ const GATED_BASH_PATTERNS = [
 	/\btruncate\b/,
 ];
 
+/** State-changing git subcommands */
+const GATED_GIT_SUBCOMMANDS = [
+	"checkout",
+	"reset",
+	"clean",
+	"rebase",
+	"cherry-pick",
+	"merge",
+	"revert",
+	"stash",
+	"push",
+	"commit",
+	"add",
+	"rm",
+	"mv",
+	"restore",
+	"switch",
+	"tag",
+	"branch",
+];
+
+const GIT_SUBCOMMAND_REGEX = new RegExp(
+	`\\bgit\\s+(?:${GATED_GIT_SUBCOMMANDS.join("|")})\\b`,
+);
+
 export function isGatedBashCommand(command: string): boolean {
-	return GATED_BASH_PATTERNS.some((p) => p.test(command));
+	return GATED_BASH_PATTERNS.some((p) => p.test(command))
+		|| GIT_SUBCOMMAND_REGEX.test(command);
 }
 
 /** Build a human-readable summary of a tool call */
