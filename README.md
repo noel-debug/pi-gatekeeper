@@ -87,9 +87,14 @@ When a gated tool call is intercepted, a dialog appears showing what the tool wa
 | `Enter` | Confirm highlighted option |
 | `Esc` | Decline |
 
-## Commands
+## Settings
 
-- `/gatekeeper` — Toggle between `ask` (default) and `auto-accept` mode
+Open with `/gatekeeper`:
+
+| Setting | Values | Description |
+|---------|--------|-------------|
+| **Mode** | `ask` (default), `auto-accept` | Whether tool calls require approval |
+| **Show detection reasons** | `off` (default), `on` | Show why a bash command was gated (e.g. "output redirect", "unknown command") |
 
 ## Install
 
@@ -140,7 +145,7 @@ cd ~/.pi/agent/extensions/gatekeeper && npm install
 
 ## Try to break it
 
-No static analysis of a Turing-complete language is perfect. Try to sneak a `touch /tmp/pwned` past the filter. Try to find a read-only command that gets blocked for no reason. The test suite has 217 cases — see if you can find case 218.
+No static analysis of a Turing-complete language is perfect. Try to sneak a `touch /tmp/pwned` past the filter. Try to find a read-only command that gets blocked for no reason. The test suite has *n* cases — see if you can find case *n+1*.
 
 ## License
 

@@ -10,19 +10,11 @@ import { analyzeCommand, type AnalysisResult } from "./analyzer";
 export const MUTATING_TOOLS = new Set(["edit", "write"]);
 
 /**
- * Analyze a bash command and return whether it should be gated.
+ * Analyze a bash command and return detailed classification results.
+ * Includes human-readable reasons for why a command was gated.
  *
  * Uses tree-sitter-bash for structural analysis with a default-deny
  * allowlist. Falls back to regex patterns if tree-sitter is unavailable.
- */
-export async function isGatedBashCommand(command: string): Promise<boolean> {
-	const result = await analyzeCommand(command);
-	return result.gated;
-}
-
-/**
- * Analyze a bash command and return detailed classification results.
- * Includes human-readable reasons for why a command was gated.
  */
 export { analyzeCommand, type AnalysisResult };
 

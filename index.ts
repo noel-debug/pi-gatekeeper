@@ -11,19 +11,22 @@
  *   Auto-accept (a)  – Stop asking and allow all tool calls until toggled back
  *
  * Commands:
- *   /gatekeeper       – Toggle between "ask" (default) and "auto-accept" mode
+ *   /gatekeeper       – Open settings (mode, show detection reasons)
  *
  * Status indicator in footer shows current mode.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { getSettingsListTheme } from "@mariozechner/pi-coding-agent";
+import { Container, type SettingItem, SettingsList, Text } from "@mariozechner/pi-tui";
 import { showGatekeeperDialog } from "./dialog";
-import { buildToolSummary, isGatedBashCommand, MUTATING_TOOLS } from "./patterns";
+import { analyzeCommand, buildToolSummary, MUTATING_TOOLS } from "./patterns";
 
 type ConsentMode = "ask" | "auto-accept";
 
 export default function gatekeeper(pi: ExtensionAPI) {
 	let mode: ConsentMode = "ask";
+	let showReasons = false;
 
 	// ── Status indicator ──────────────────────────────────────────────
 	function updateStatus(ctx: ExtensionContext) {
@@ -39,15 +42,16 @@ export default function gatekeeper(pi: ExtensionAPI) {
 	function restoreState(ctx: ExtensionContext) {
 		for (const entry of ctx.sessionManager.getBranch()) {
 			if (entry.type === "custom" && (entry.customType === "gatekeeper-config" || entry.customType === "consent-config")) {
-				const data = entry.data as { mode?: ConsentMode } | undefined;
+				const data = entry.data as { mode?: ConsentMode; showReasons?: boolean } | undefined;
 				if (data?.mode) mode = data.mode;
+				if (data?.showReasons !== undefined) showReasons = data.showReasons;
 			}
 		}
 		updateStatus(ctx);
 	}
 
 	function persistState() {
-		pi.appendEntry("gatekeeper-config", { mode });
+		pi.appendEntry("gatekeeper-config", { mode, showReasons });
 	}
 
 	// ── Session lifecycle ─────────────────────────────────────────────
@@ -69,25 +73,58 @@ export default function gatekeeper(pi: ExtensionAPI) {
 
 	// ── /gatekeeper command ───────────────────────────────────────────
 	pi.registerCommand("gatekeeper", {
-		description: "Toggle gatekeeper mode (ask / auto-accept)",
+		description: "Gatekeeper settings",
 		handler: async (_args, ctx) => {
-			if (mode === "ask") {
-				mode = "auto-accept";
-				ctx.ui.notify("Gatekeeper: auto-accept (file changes allowed without asking)", "warning");
-			} else {
-				mode = "ask";
-				ctx.ui.notify("Gatekeeper: ask (file changes require approval)", "info");
-			}
-			persistState();
-			updateStatus(ctx);
+			await ctx.ui.custom((tui, theme, _kb, done) => {
+				const items: SettingItem[] = [
+					{ id: "mode", label: "Mode", currentValue: mode, values: ["ask", "auto-accept"] },
+					{ id: "showReasons", label: "Show detection reasons", currentValue: showReasons ? "on" : "off", values: ["on", "off"] },
+				];
+
+				const container = new Container();
+				container.addChild(new Text(theme.fg("accent", theme.bold("Gatekeeper Settings")), 1, 1));
+
+				const settingsList = new SettingsList(
+					items,
+					items.length + 2,
+					getSettingsListTheme(),
+					(id, newValue) => {
+						if (id === "mode") {
+							mode = newValue as ConsentMode;
+							updateStatus(ctx);
+						} else if (id === "showReasons") {
+							showReasons = newValue === "on";
+						}
+						persistState();
+					},
+					() => done(undefined),
+				);
+				container.addChild(settingsList);
+
+				return {
+					render: (w: number) => container.render(w),
+					invalidate: () => container.invalidate(),
+					handleInput: (data: string) => {
+						settingsList.handleInput?.(data);
+						tui.requestRender();
+					},
+				};
+			});
 		},
 	});
 
 	// ── Tool call interception ────────────────────────────────────────
 	pi.on("tool_call", async (event, ctx) => {
 		// Check if this tool call needs approval
-		const needsApproval = MUTATING_TOOLS.has(event.toolName)
-			|| (event.toolName === "bash" && await isGatedBashCommand(event.input.command as string));
+		let needsApproval = MUTATING_TOOLS.has(event.toolName);
+		let detectionReasons: string[] | undefined;
+
+		if (!needsApproval && event.toolName === "bash") {
+			const analysis = await analyzeCommand(event.input.command as string);
+			needsApproval = analysis.gated;
+			detectionReasons = analysis.reasons;
+		}
+
 		if (!needsApproval) return undefined;
 
 		// Auto-accept mode: allow everything
@@ -102,7 +139,8 @@ export default function gatekeeper(pi: ExtensionAPI) {
 		const summary = buildToolSummary(event.toolName, event.input);
 
 		// Show gatekeeper dialog
-		const result = await showGatekeeperDialog(ctx, event.toolName, summary);
+		const reasons = showReasons ? detectionReasons : undefined;
+		const result = await showGatekeeperDialog(ctx, event.toolName, summary, reasons);
 
 		if (result === "auto-accept") {
 			mode = "auto-accept";

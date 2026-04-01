@@ -194,6 +194,8 @@ export const SAFE_COMMANDS: Record<string, CommandRule> = {
 	"readlink": true, "realpath": true, "basename": true, "dirname": true,
 	"sha256sum": true, "sha1sum": true, "sha512sum": true, "shasum": true,
 	"md5sum": true, "md5": true, "cksum": true, "b2sum": true, "sum": true,
+	"base64": (args) => !args.some(a => a === "-o" || a === "--output"),
+	"base32": (args) => !args.some(a => a === "-o" || a === "--output"),
 
 	// ── Text processing (stdout-only) ───────────────────────────────
 	"awk": isAwkSafe, "gawk": isAwkSafe, "mawk": isAwkSafe,

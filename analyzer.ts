@@ -74,7 +74,7 @@ async function initParser(): Promise<ParserInstance | null> {
 
 export async function analyzeCommand(command: string): Promise<AnalysisResult> {
 	const parser = await getParser();
-	if (!parser) return { gated: isGatedFallback(command), reasons: ["regex fallback"] };
+	if (!parser) return { gated: isGatedFallback(command), reasons: ["tree-sitter unavailable — regex fallback matched a potentially mutating pattern"] };
 
 	const tree = parser.parse(command);
 	try {
@@ -82,7 +82,7 @@ export async function analyzeCommand(command: string): Promise<AnalysisResult> {
 
 		// Parse errors → gate (possible obfuscation or complex construct)
 		if (root.hasError) {
-			return { gated: true, reasons: ["parse error (possible obfuscation)"] };
+			return { gated: true, reasons: ["shell parser reported syntax errors — possible obfuscation or complex construct"] };
 		}
 
 		const reasons: string[] = [];
@@ -124,7 +124,7 @@ const LEAF_INERT = new Set([
 function classifyNode(node: SyntaxNode, reasons: string[]): void {
 	// ERROR nodes from tree-sitter error recovery
 	if (node.type === "ERROR" || node.isError) {
-		reasons.push(`parse error near: ${node.text.slice(0, 40)}`);
+		reasons.push(`AST parse error near \`${node.text.slice(0, 40)}\` — possible obfuscation or unsupported syntax`);
 		return;
 	}
 
@@ -133,12 +133,16 @@ function classifyNode(node: SyntaxNode, reasons: string[]): void {
 			classifyCommand(node, reasons);
 			return;
 
+		case "pipeline":
+			classifyPipeline(node, reasons);
+			return;
+
 		case "file_redirect":
 			classifyFileRedirect(node, reasons);
 			return;
 
 		case "function_definition":
-			reasons.push("function definition (unanalyzable)");
+			reasons.push("function definition — defines callable code that cannot be statically analyzed");
 			return;
 
 		default:
@@ -158,19 +162,137 @@ function classifyNode(node: SyntaxNode, reasons: string[]): void {
 	}
 }
 
+// ── Pipeline classification ──────────────────────────────────────────────
+
+/** Shell commands that execute their stdin as code */
+const SHELL_EXECUTORS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"]);
+
+/**
+ * Detect encoded payload pipelines like `echo <base64> | base64 -d | sh`.
+ * When found, decode the payload and report what actually executes.
+ */
+function classifyPipeline(node: SyntaxNode, reasons: string[]): void {
+	// Collect pipeline stages
+	const stages: SyntaxNode[] = [];
+	for (let i = 0; i < node.childCount; i++) {
+		const child = node.child(i);
+		if (child && child.isNamed) stages.push(child);
+	}
+
+	// Look for pattern: ... | base64 -d | <shell>
+	const decoded = tryDecodePipelinePayload(stages);
+	if (decoded) {
+		const trimmed = decoded.payload.trim();
+		const payloadDisplay = trimmed.length > 120 ? trimmed.slice(0, 120) + "…" : trimmed;
+		reasons.push(
+			`encoded pipeline \`${node.text.slice(0, 80)}\` \u2014 ` +
+			`base64 payload decodes to: \`${payloadDisplay}\` \u2192 piped to \`${decoded.shell}\` for execution`
+		);
+		return;
+	}
+
+	// No special pattern detected \u2014 classify each stage individually
+	for (const stage of stages) {
+		classifyNode(stage, reasons);
+	}
+}
+
+interface DecodedPipeline {
+	payload: string;
+	shell: string;
+}
+
+/** Try to extract and decode a base64 payload from a pipeline */
+function tryDecodePipelinePayload(stages: SyntaxNode[]): DecodedPipeline | null {
+	if (stages.length < 2) return null;
+
+	// Check if the last stage is a shell executor
+	const lastStage = stages[stages.length - 1];
+	const lastCmd = getCommandName(lastStage);
+	if (!lastCmd || !SHELL_EXECUTORS.has(lastCmd)) return null;
+
+	// Look for a base64 decode stage before it
+	let base64Idx = -1;
+	for (let i = stages.length - 2; i >= 0; i--) {
+		const cmd = getCommandName(stages[i]);
+		if (cmd === "base64" && hasFlag(stages[i], "-d", "--decode", "-D")) {
+			base64Idx = i;
+			break;
+		}
+	}
+	if (base64Idx < 0) return null;
+
+	// Try to extract the literal payload from stages before base64
+	const payload = extractLiteralPayload(stages, base64Idx);
+	if (!payload) return null;
+
+	// Decode
+	try {
+		const decoded = Buffer.from(payload, "base64").toString("utf-8");
+		// Sanity check: must produce printable text
+		if (!/^[\x09\x0a\x0d\x20-\x7e]+$/.test(decoded)) return null;
+		return { payload: decoded, shell: lastCmd };
+	} catch {
+		return null;
+	}
+}
+
+/** Get the resolved command name from a command node */
+function getCommandName(node: SyntaxNode): string | null {
+	if (node.type !== "command") return null;
+	const nameNode = node.childForFieldName("name");
+	if (!nameNode) return null;
+	return resolveCommandName(nameNode);
+}
+
+/** Check if a command node has a specific flag (supports combined short flags like -di) */
+function hasFlag(node: SyntaxNode, ...flags: string[]): boolean {
+	const args = getCommandArgs(node);
+	return args.some(a => {
+		if (flags.includes(a)) return true;
+		// Check combined short flags: -di contains -d
+		if (a.startsWith("-") && !a.startsWith("--") && a.length > 2) {
+			for (const flag of flags) {
+				if (flag.startsWith("-") && !flag.startsWith("--") && flag.length === 2) {
+					if (a.includes(flag[1])) return true;
+				}
+			}
+		}
+		return false;
+	});
+}
+
+/** Extract the literal string payload fed into a base64 -d stage */
+function extractLiteralPayload(stages: SyntaxNode[], base64Idx: number): string | null {
+	if (base64Idx === 0) return null;
+	const feedStage = stages[base64Idx - 1];
+	if (feedStage.type !== "command") return null;
+	const cmd = getCommandName(feedStage);
+	if (cmd !== "echo" && cmd !== "printf") return null;
+	const args = getCommandArgs(feedStage);
+	if (args.length === 0) return null;
+	// Return the last argument (the payload), stripping quotes
+	let payload = args[args.length - 1];
+	if ((payload.startsWith("'") && payload.endsWith("'")) ||
+		(payload.startsWith('"') && payload.endsWith('"'))) {
+		payload = payload.slice(1, -1);
+	}
+	return payload;
+}
+
 // ── Command classification ──────────────────────────────────────────────
 
 function classifyCommand(node: SyntaxNode, reasons: string[]): void {
 	const nameNode = node.childForFieldName("name");
 	if (!nameNode) {
-		reasons.push("command without name");
+		reasons.push("command node has no name field — cannot determine what will execute");
 		return;
 	}
 
 	// Resolve the static command name
 	const resolved = resolveCommandName(nameNode);
 	if (!resolved) {
-		reasons.push(`dynamic command name: ${nameNode.text.slice(0, 60)}`);
+		reasons.push(describeDynamicName(nameNode));
 		return;
 	}
 
@@ -188,11 +310,14 @@ function classifyCommand(node: SyntaxNode, reasons: string[]): void {
 	// Check the unwrapped command against the allowlist
 	const rule = SAFE_COMMANDS[unwrapped.command];
 	if (rule === undefined) {
-		reasons.push(`command not in allowlist: ${unwrapped.command}`);
+		const detail = unwrapped.command !== resolved
+			? ` (resolved from \`${resolved} ${args.join(" ")}\`)` : "";
+		reasons.push(`\`${unwrapped.command}\` is not in the safe command allowlist${detail} — default-deny policy gates unknown commands`);
 		return; // Already gated — no need to scan further
 	}
 	if (rule !== true && !rule(unwrapped.commandArgs)) {
-		reasons.push(`${unwrapped.command} with mutating arguments`);
+		const argStr = unwrapped.commandArgs.length > 0 ? ` with args [${unwrapped.commandArgs.join(", ")}]` : "";
+		reasons.push(`\`${unwrapped.command}\`${argStr} — allowlisted command but arguments indicate file mutation`);
 		return; // Already gated
 	}
 
@@ -215,6 +340,95 @@ function scanCommandChildren(node: SyntaxNode, reasons: string[]): void {
 		if (child.type === "command_name") continue; // already resolved above
 		classifyNode(child, reasons);
 	}
+}
+
+// ── Dynamic name diagnostics ────────────────────────────────────────────
+
+const DYNAMIC_NAME_DESCRIPTIONS: Record<string, string> = {
+	command_substitution: "command substitution `$(...)` in command position — executed command is determined at runtime",
+	simple_expansion: "variable expansion `$var` in command position — command name resolved at runtime from variable",
+	expansion: "parameter expansion `${...}` in command position — command name resolved at runtime",
+	process_substitution: "process substitution `<(...)` in command position — cannot statically determine command",
+	concatenation: "string concatenation in command position — fragments may assemble an arbitrary command name",
+};
+
+function describeDynamicName(nameNode: SyntaxNode): string {
+	const child = nameNode.childCount > 0 ? nameNode.child(0) : null;
+	const nodeType = child?.type ?? "unknown";
+	const snippet = nameNode.text.slice(0, 60);
+
+	// ANSI-C strings: decode and show the actual command
+	if (nodeType === "ansi_c_string" && child) {
+		const decoded = decodeAnsiCString(child.text);
+		return `\`${snippet}\` decodes to \`${decoded}\` — ANSI-C quoting \`$'...'\` in command position encodes command name via escape sequences`;
+	}
+
+	const description = DYNAMIC_NAME_DESCRIPTIONS[nodeType]
+		?? `dynamic construct (AST node: ${nodeType}) — cannot statically resolve command name`;
+	return `\`${snippet}\` — ${description}`;
+}
+
+/** Decode a bash ANSI-C quoted string: $'\x72\x6d' → rm */
+function decodeAnsiCString(raw: string): string {
+	// Strip the $' prefix and ' suffix
+	let s = raw;
+	if (s.startsWith("$'") && s.endsWith("'")) {
+		s = s.slice(2, -1);
+	}
+
+	let result = "";
+	for (let i = 0; i < s.length; i++) {
+		if (s[i] !== "\\" || i + 1 >= s.length) {
+			result += s[i];
+			continue;
+		}
+		const next = s[i + 1];
+		switch (next) {
+			case "x": case "X": { // \xHH
+				const hex = s.slice(i + 2, i + 4);
+				const code = parseInt(hex, 16);
+				result += isNaN(code) ? s.slice(i, i + 4) : String.fromCharCode(code);
+				i += 3;
+				break;
+			}
+			case "u": { // \uHHHH
+				const hex = s.slice(i + 2, i + 6);
+				const code = parseInt(hex, 16);
+				result += isNaN(code) ? s.slice(i, i + 6) : String.fromCodePoint(code);
+				i += 5;
+				break;
+			}
+			case "U": { // \UHHHHHHHH
+				const hex = s.slice(i + 2, i + 10);
+				const code = parseInt(hex, 16);
+				result += isNaN(code) ? s.slice(i, i + 10) : String.fromCodePoint(code);
+				i += 9;
+				break;
+			}
+			case "0": case "1": case "2": case "3":
+			case "4": case "5": case "6": case "7": { // \NNN octal
+				let oct = next;
+				if (i + 2 < s.length && s[i + 2] >= "0" && s[i + 2] <= "7") { oct += s[i + 2]; i++; }
+				if (i + 2 < s.length && s[i + 2] >= "0" && s[i + 2] <= "7") { oct += s[i + 2]; i++; }
+				result += String.fromCharCode(parseInt(oct, 8));
+				i++;
+				break;
+			}
+			case "n": result += "\n"; i++; break;
+			case "t": result += "\t"; i++; break;
+			case "r": result += "\r"; i++; break;
+			case "a": result += "\x07"; i++; break;
+			case "b": result += "\b"; i++; break;
+			case "f": result += "\f"; i++; break;
+			case "v": result += "\v"; i++; break;
+			case "e": case "E": result += "\x1b"; i++; break;
+			case "\\": result += "\\"; i++; break;
+			case "'": result += "'"; i++; break;
+			case '"': result += '"'; i++; break;
+			default: result += "\\" + next; i++; break;
+		}
+	}
+	return result;
 }
 
 // ── Command name resolution ─────────────────────────────────────────────
@@ -388,7 +602,7 @@ function classifyFileRedirect(node: SyntaxNode, reasons: string[]): void {
 	// >  >>  >&  >|  (clobber) &> (stdout+stderr) &>> (append stdout+stderr)
 	const WRITE_OPERATORS = new Set([">", ">>", ">&", ">|", "&>", "&>>"]);
 	if (WRITE_OPERATORS.has(operator)) {
-		reasons.push(`output redirect: ${operator} ${destination}`);
+		reasons.push(`output redirect \`${operator} ${destination}\` — writes to filesystem`);
 	}
 }
 
