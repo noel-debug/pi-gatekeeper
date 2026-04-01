@@ -10,6 +10,7 @@ export async function showGatekeeperDialog(
 	ctx: ExtensionContext,
 	toolName: string,
 	summary: string,
+	detectionReasons?: string[],
 ): Promise<ConsentResult | "auto-accept"> {
 	return ctx.ui.custom<ConsentResult | "auto-accept">((tui, theme, _kb, done) => {
 		// State
@@ -143,6 +144,15 @@ export async function showGatekeeperDialog(
 					color = "muted";
 				}
 				lines.push(truncateToWidth(`  ${theme.fg(color as any, sl)}`, width));
+			}
+
+			// Detection reasons (when enabled)
+			if (detectionReasons && detectionReasons.length > 0) {
+				lines.push("");
+				lines.push(truncateToWidth(`  ${theme.fg("warning", "Gated because:")}`, width));
+				for (const reason of detectionReasons) {
+					lines.push(truncateToWidth(`  ${theme.fg("warning", `• ${reason}`)}`, width));
+				}
 			}
 
 			lines.push("");
