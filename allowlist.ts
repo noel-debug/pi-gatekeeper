@@ -94,13 +94,44 @@ function isFindSafe(args: string[]): boolean {
 }
 
 function isSedSafe(args: string[]): boolean {
-	return !args.some(a => a === "-i" || a.startsWith("-i") || a === "--in-place");
+	// -i / --in-place modifies files
+	if (args.some(a => a === "-i" || a.startsWith("-i") || a === "--in-place")) return false;
+	// sed's 'w' and 'W' commands write to files from within expressions
+	// e.g. sed -n 'w /tmp/file' or sed '1w output.txt'
+	const exprArgs = getSedExpressions(args);
+	if (exprArgs.some(e => /\bw\s/i.test(e))) return false;
+	return true;
+}
+
+/** Extract sed expression arguments (from -e args and bare args) */
+function getSedExpressions(args: string[]): string[] {
+	const exprs: string[] = [];
+	for (let i = 0; i < args.length; i++) {
+		if (args[i] === "-e" && i + 1 < args.length) {
+			exprs.push(args[++i]);
+		} else if (!args[i].startsWith("-")) {
+			// First non-flag non-file arg is the expression (heuristic)
+			exprs.push(args[i]);
+		}
+	}
+	return exprs;
 }
 
 function isCurlSafe(args: string[]): boolean {
 	for (const a of args) {
 		if (["-o", "--output", "-O", "--remote-name", "-J", "--remote-header-name"].includes(a)) return false;
 		if (a.startsWith("-") && !a.startsWith("--") && (a.includes("o") || a.includes("O") || a.includes("J"))) return false;
+	}
+	return true;
+}
+
+function isAwkSafe(args: string[]): boolean {
+	// awk can write files via its own '>' redirect in program text
+	// e.g. awk '{print > "file"}' or awk 'BEGIN{print > "/tmp/f"}'
+	for (const a of args) {
+		if (!a.startsWith("-") && (a.includes(">") || a.includes(">>") || /\bsystem\s*\(/.test(a))) {
+			return false;
+		}
 	}
 	return true;
 }
@@ -148,7 +179,7 @@ export const SAFE_COMMANDS: Record<string, CommandRule> = {
 	"md5sum": true, "md5": true, "cksum": true, "b2sum": true, "sum": true,
 
 	// ── Text processing (stdout-only) ───────────────────────────────
-	"awk": true, "gawk": true, "mawk": true,
+	"awk": isAwkSafe, "gawk": isAwkSafe, "mawk": isAwkSafe,
 	"sed": isSedSafe,
 	"sort": isSortSafe,
 	"uniq": true, "cut": true, "tr": true, "paste": true, "column": true,

@@ -251,6 +251,14 @@ const tests: TestCase[] = [
 	{ cmd: "command rm file", expect: "gated", label: "command wrapping rm" },
 	{ cmd: "builtin rm file", expect: "gated", label: "builtin wrapping rm" },
 	{ cmd: "for f in *.txt; do rm \"$f\"; done", expect: "gated", label: "rm inside for loop" },
+
+	// ── Gated: awk/sed internal file writes ───────────────────────
+	{ cmd: "awk 'BEGIN{print \"x\" > \"/tmp/f\"}'", expect: "gated", label: "awk internal > redirect" },
+	{ cmd: "awk '{print >> \"/tmp/f\"}' input", expect: "gated", label: "awk internal >> redirect" },
+	{ cmd: "awk 'BEGIN{system(\"rm file\");}'", expect: "gated", label: "awk system() call" },
+	{ cmd: "sed -n 'w /tmp/file' input", expect: "gated", label: "sed w command" },
+	{ cmd: "awk '{print $1}' file.txt", expect: "safe", label: "awk normal usage" },
+	{ cmd: "sed 's/foo/bar/' file.txt", expect: "safe", label: "sed normal usage" },
 	{ cmd: "while true; do rm file; done", expect: "gated", label: "rm inside while loop" },
 	{ cmd: "if true; then rm file; fi", expect: "gated", label: "rm inside if" },
 	{ cmd: "echo safe; rm dangerous", expect: "gated", label: "rm after semicolon" },
